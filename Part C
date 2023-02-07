@@ -1,0 +1,97 @@
+#define F_CPU 16000000UL
+#define BAUD_RATE 9600
+#define BAUD_PRESCALER (((F_CPU / (BAUD_RATE * 16UL))) - 1)
+
+/*--------------------Libraries---------------------------*/
+#include <stdlib.h>
+#include <stdio.h>
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+
+
+#include "uart.h"
+
+/*--------------------Variables---------------------------*/
+char String[25];
+volatile unsigned long int edge1 = 0;
+volatile unsigned long int edge2 = 0;
+volatile unsigned long int duration = 0;
+volatile int overflow = 0;
+
+/*-----------------------------------------------------------*/
+void Initialize(){
+
+	cli();
+	
+	DDRB &= ~(1<<DDB0); //Configure PB0 (ICP1) to be input
+	DDRB |= (1<<DDB5); //Configure PB5 to be output
+	
+	//Timer setup - internal div by 256, results in 62500 ticks per second
+	// 1 tick = 0.016 ms
+	// This means one full cycle of timer = 2^16/62500 ~= 1s, which is sufficient for morse code
+	TCCR1B &= ~(1<<CS10);
+	TCCR1B &= ~(1<<CS11);
+	TCCR1B |= (1<<CS12);
+	
+	TCCR1A &= ~(1<<WGM10);
+	TCCR1A &= ~(1<<WGM11);
+	TCCR1B &= ~(1<<WGM12);
+	TCCR1B &= ~(1<<WGM13);
+	
+	//Looking for rising edge initially
+	TCCR1B |= (1<<ICES1);
+	
+	//Clear interrupt flag
+	TIFR1 |= (1<<ICF1);
+	
+	//Enable input capture interrupt
+	TIMSK1 |= (1<<ICIE1);	
+	
+	sei();
+}
+
+ISR(TIMER1_CAPT_vect){
+	TIFR1 |= (1<<ICF1); //Clear interrupt flag
+	
+	if(PINB & (1<<PINB0)){ //If PB0 is high
+		TIMSK1 |= (1<<TOIE1); //Enable timer overflow interrupt
+		
+		edge1 = ICR1; //Save value of start edge
+		TCCR1B &= ~(1<<ICES1); //Now looking for falling edge
+	}
+	else { //If PB0 is low
+		TIMSK1 &= ~(1<<TOIE1); //Disable timer overflow interrupt
+		
+		edge2 = ICR1; //Save value of end edge
+		edge2 = edge2 + overflow * 65536;
+		duration = edge2 - edge1; //Compute duration of signal
+		overflow = 0;
+		
+		TCCR1B |= (1<<ICES1); //Now looking for rising edge
+	}
+	
+}
+
+ISR(TIMER1_OVF_vect){
+	overflow ++;
+}
+
+int main(void)
+{
+	Initialize();
+	UART_init(BAUD_PRESCALER);
+	
+	while(1)
+	{
+		if(duration != 0){
+			
+			volatile unsigned long int duration_ms = (int)((double) duration / 62.5); //Converting from ticks to ms
+	
+			sprintf(String,"The duration is %lu\n", duration_ms);
+			UART_putstring(String);
+			
+			duration = 0;
+		}
+	}
+}
