@@ -18,6 +18,9 @@ volatile unsigned long int edge1 = 0;
 volatile unsigned long int edge2 = 0;
 volatile unsigned long int duration = 0;
 volatile int overflow = 0;
+volatile unsigned long int space_ms = 0;
+volatile unsigned long int space = 0;
+int isSpace = 0;
 
 /*-----------------------------------------------------------*/
 void Initialize(){
@@ -55,12 +58,22 @@ ISR(TIMER1_CAPT_vect){
 	TIFR1 |= (1<<ICF1); //Clear interrupt flag
 	
 	if(PINB & (1<<PINB0)){ //If PB0 is high
-		TIMSK1 |= (1<<TOIE1); //Enable timer overflow interrupt
 		
+		TIMSK1 &= ~(1<<TOIE1); //Disable timer overflow interrupt
 		edge1 = ICR1; //Save value of start edge
+		
+		space = edge1 + overflow * 65536 - edge2; //duration of space in ticks
+		space_ms = (int)((double) space / 62.5); //Converting from ticks to ms
+		if(space_ms > 800 && space_ms < 42000){  //Space is > 800 ms
+			isSpace = 1;
+		}
+		overflow = 0;
+		
+		TIMSK1 |= (1<<TOIE1); //Enable timer overflow interrupt
 		TCCR1B &= ~(1<<ICES1); //Now looking for falling edge
 	}
 	else { //If PB0 is low
+		
 		TIMSK1 &= ~(1<<TOIE1); //Disable timer overflow interrupt
 		
 		edge2 = ICR1; //Save value of end edge
@@ -69,6 +82,7 @@ ISR(TIMER1_CAPT_vect){
 		overflow = 0;
 		
 		TCCR1B |= (1<<ICES1); //Now looking for rising edge
+		TIMSK1 |= (1<<TOIE1); //Enable timer overflow interrupt (for measuring spaces)
 	}
 	
 }
@@ -87,11 +101,29 @@ int main(void)
 		if(duration != 0){
 			
 			volatile unsigned long int duration_ms = (int)((double) duration / 62.5); //Converting from ticks to ms
-	
-			sprintf(String,"The duration is %lu\n", duration_ms);
-			UART_putstring(String);
+			
+			if(duration_ms > 30 && duration_ms < 200){
+				sprintf(String," DOT ");
+				UART_putstring(String);
+				
+			} else if (duration_ms >= 200 && duration_ms < 800){
+				sprintf(String," DASH ");
+				UART_putstring(String);
+			}
 			
 			duration = 0;
+		}
+		
+		if(isSpace == 1){
+	
+			sprintf(String,"\nSPACE\n");
+			UART_putstring(String);
+			
+			PORTB |= (1<<PORTB3); //Set PB3 to high, indicating space
+			_delay_ms(50);
+			PORTB &= ~(1<<PORTB3); //Set PB3 to low
+			
+			isSpace = 0;
 		}
 	}
 }
