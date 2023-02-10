@@ -8,5 +8,7 @@ partc.c is a program that outputs to the serial moniter whether a dot, dash, or 
 
 main.c is the final program that is used for Part D.
 
+bonus.c is the bonus program that converts a word to morse code
+
 
 
